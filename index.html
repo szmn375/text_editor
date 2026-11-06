@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="小説ノート">
+<title>小説ノート</title>
+<style>
+:root{
+  --bg:#fbfbf9; --ink:#23262b; --sub:#8a9099; --line:#d5e2ea; --bar:#f1f2ee; --edge:#e2e4de; --accent:#2f6f8f;
+  --fs:18px; --lh:36px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#1b1d20; --ink:#e4e5e2; --sub:#80858d; --line:#2c3439; --bar:#222529; --edge:#2e3236; --accent:#7fb6d3; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--ink)}
+body{position:fixed;left:0;top:0;width:100%;display:flex;flex-direction:column;height:var(--vh,100dvh);overflow:hidden;
+  font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+  padding-top:env(safe-area-inset-top,0px)}
+header,footer{display:flex;align-items:center;gap:8px;background:var(--bar);padding:6px 12px;
+  font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+header{border-bottom:1px solid var(--edge)}
+footer{border-top:1px solid var(--edge);padding-bottom:calc(6px + env(safe-area-inset-bottom,0px));
+  font-size:13px;color:var(--sub);justify-content:space-between}
+#title{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font-size:17px;font-weight:600;
+  font-family:inherit;padding:8px 4px;outline:none}
+button{font:inherit;font-family:-apple-system,"Hiragino Sans",sans-serif;border:0;background:transparent;
+  color:var(--accent);font-size:15px;padding:8px 10px;border-radius:8px;cursor:pointer}
+button:active{background:var(--edge)}
+button:focus-visible,#title:focus-visible{outline:2px solid var(--accent)}
+.wrap{flex:1;min-height:0;min-width:0;position:relative}
+.kb footer{padding-bottom:6px}
+#ed{display:block;width:100%;height:100%;border:0;resize:none;outline:none;background-color:transparent;color:var(--ink);
+  font-family:inherit;font-size:var(--fs);line-height:var(--lh);
+  padding:0 max(20px,env(safe-area-inset-left,0px)) 30dvh max(20px,env(safe-area-inset-right,0px));
+  white-space:pre-wrap;overflow-wrap:anywhere;
+  background-image:linear-gradient(to bottom,transparent calc(var(--lh) - 1px),var(--line) calc(var(--lh) - 1px));
+  background-size:100% var(--lh);background-attachment:local;background-repeat:repeat;
+  margin-top:10px;height:calc(100% - 10px);
+  letter-spacing:.02em;caret-color:var(--accent);-webkit-text-size-adjust:100%}
+#count{background:none;color:var(--sub);padding:6px 4px;font-size:13px}
+#status{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet{position:fixed;inset:0;display:none;align-items:flex-end;background:rgba(0,0,0,.35);z-index:10}
+.sheet.on{display:flex}
+.panel{width:100%;max-height:80dvh;overflow:auto;background:var(--bg);border-radius:16px 16px 0 0;
+  padding:12px 16px calc(16px + env(safe-area-inset-bottom,0px));font-family:-apple-system,"Hiragino Sans",sans-serif}
+.panel h2{font-size:15px;margin:4px 0 10px;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.row button{background:var(--bar);flex:1;min-width:30%}
+.panel input{width:100%;font-size:16px;padding:10px;border:1px solid var(--edge);border-radius:8px;background:var(--bar);color:var(--ink)}
+.panel p{font-size:12px;color:var(--sub);line-height:1.6;margin:6px 0}
+.file{display:block;width:100%;text-align:left;color:var(--ink);padding:12px 6px;border-bottom:1px solid var(--edge);border-radius:0}
+</style>
+</head>
+<body>
+<header>
+  <input id="title" placeholder="タイトル" aria-label="タイトル" autocomplete="off">
+  <button id="bMenu" aria-label="メニュー">メニュー</button>
+</header>
+<div class="wrap"><textarea id="ed" placeholder="ここに書き始める" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea></div>
+<footer>
+  <button id="count" aria-label="文字数の数え方を切り替え">0字</button>
+  <span id="status"></span>
+</footer>
+
+<div class="sheet" id="sheet"><div class="panel" id="panel"></div></div>
+
+<script>
+(() => {
+const $ = s => document.querySelector(s), LS = localStorage;
+const ed = $('#ed'), title = $('#title'), status = $('#status'), count = $('#count');
+const REDIR = location.origin + location.pathname;
+let mode = LS.cMode || 'plain';   // plain=改行を除く / all=改行を含む
+
+/* ---------- 文字数 ---------- */
+function updateCount(){
+  const t = ed.value, n = [...(mode==='plain' ? t.replace(/\n/g,'') : t)].length;
+  count.textContent = n.toLocaleString() + '字' + (mode==='plain' ? '（改行除く）' : '（改行含む）');
+}
+count.onclick = () => { mode = mode==='plain' ? 'all' : 'plain'; LS.cMode = mode; updateCount(); };
+
+/* ---------- ローカル自動保存 ---------- */
+let timer;
+function saveLocal(){ LS.text = ed.value; LS.name = title.value; }
+ed.addEventListener('input', () => { LS.dirty = '1'; updateCount(); clearTimeout(timer); timer = setTimeout(saveLocal, 400); });
+title.addEventListener('input', () => { LS.dirty = '1'; saveLocal(); });
+ed.value = LS.text || ''; title.value = LS.name || '';
+function applySize(){ document.documentElement.style.setProperty('--fs', (LS.fs||18)+'px'); document.documentElement.style.setProperty('--lh', Math.round((LS.fs||18)*2)+'px'); }
+applySize(); updateCount();
+
+function say(msg, ms=3000){ status.textContent = msg; if(ms) setTimeout(()=>{ if(status.textContent===msg) status.textContent=''; }, ms); }
+
+/* ---------- Dropbox (OAuth2 PKCE) ---------- */
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+async function login(){
+  const key = LS.dbxKey; if(!key){ say('先にApp keyを入力してください'); return; }
+  const v = b64u(crypto.getRandomValues(new Uint8Array(32)));
+  const c = b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
+  LS.dbxVerifier = v; saveLocal();
+  location.href = 'https://www.dropbox.com/oauth2/authorize?' + new URLSearchParams({
+    client_id:key, response_type:'code', code_challenge:c, code_challenge_method:'S256',
+    token_access_type:'offline', redirect_uri:REDIR });
+}
+async function tokenReq(params){
+  const r = await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',body:new URLSearchParams({client_id:LS.dbxKey,...params})});
+  const j = await r.json(); if(!r.ok) throw new Error(j.error_description||'認証に失敗しました');
+  LS.dbxAccess = j.access_token; LS.dbxExp = Date.now() + (j.expires_in-60)*1000;
+  if(j.refresh_token) LS.dbxRefresh = j.refresh_token;
+}
+async function handleRedirect(){
+  const code = new URLSearchParams(location.search).get('code'); if(!code) return;
+  history.replaceState(null,'',REDIR);
+  try{ await tokenReq({grant_type:'authorization_code',code,code_verifier:LS.dbxVerifier,redirect_uri:REDIR}); say('Dropboxに接続しました'); }
+  catch(e){ say(e.message,6000); }
+}
+async function access(){
+  if(!LS.dbxRefresh) throw new Error('Dropboxに未接続です');
+  if(!LS.dbxAccess || Date.now() > +LS.dbxExp) await tokenReq({grant_type:'refresh_token',refresh_token:LS.dbxRefresh});
+  return LS.dbxAccess;
+}
+const arg = o => JSON.stringify(o).replace(/[\u007f-\uffff]/g, c => '\\u' + ('0000'+c.charCodeAt(0).toString(16)).slice(-4));
+const pathOf = n => '/' + (n||'無題').replace(/[\\\/:*?"<>|]/g,'_') + '.txt';
+const dirOf = p => p ? p.slice(0, p.lastIndexOf('/')) : '';
+
+async function dbxSave(as){
+  try{
+    say('保存中…',0);
+    let path = LS.path, mode;
+    if(path && !as){ mode = LS.rev ? {'.tag':'update',update:LS.rev} : 'overwrite'; }
+    else { path = dirOf(LS.path) + pathOf(title.value); mode = 'add'; }
+    const r = await fetch('https://content.dropboxapi.com/2/files/upload',{method:'POST',headers:{
+      Authorization:'Bearer '+await access(),'Content-Type':'application/octet-stream',
+      'Dropbox-API-Arg':arg({path,mode,autorename:true,mute:true})},body:new Blob([ed.value],{type:'text/plain'})});
+    if(!r.ok) throw new Error('保存できませんでした');
+    const j = await r.json();
+    LS.path = j.path_lower; LS.rev = j.rev; LS.dirty = '';
+    if(j.path_lower === path.toLowerCase()) say('Dropboxに保存しました');
+    else say((mode['.tag']==='update' ? '別の場所で更新されていたため、別ファイルに保存しました：' : '同名があったため別名で保存しました：') + j.name, 7000);
+  }catch(e){ say(e.message,6000); }
+}
+async function dbxList(dir){
+  const h = {Authorization:'Bearer '+await access(),'Content-Type':'application/json'};
+  let r = await fetch('https://api.dropboxapi.com/2/files/list_folder',{method:'POST',headers:h,body:JSON.stringify({path:dir})});
+  const out = [];
+  for(;;){
+    if(!r.ok) throw new Error('一覧を取得できませんでした');
+    const j = await r.json(); out.push(...j.entries);
+    if(!j.has_more) break;
+    r = await fetch('https://api.dropboxapi.com/2/files/list_folder/continue',{method:'POST',headers:h,body:JSON.stringify({cursor:j.cursor})});
+  }
+  return out.filter(e => e['.tag']==='folder' || (e['.tag']==='file' && /\.(txt|md|text)$/i.test(e.name)))
+    .sort((a,b) => (a['.tag']===b['.tag'] ? 0 : a['.tag']==='folder' ? -1 : 1) || a.name.localeCompare(b.name,'ja',{numeric:true}));
+}
+async function dbxOpen(path, name, rev){
+  if(LS.dirty && !confirm('保存していない変更があります。破棄して開きますか？')) return;
+  try{
+    say('読み込み中…',0);
+    const r = await fetch('https://content.dropboxapi.com/2/files/download',{method:'POST',headers:{
+      Authorization:'Bearer '+await access(),'Dropbox-API-Arg':arg({path})}});
+    if(!r.ok) throw new Error('読み込めませんでした');
+    ed.value = await r.text(); title.value = name.replace(/\.[^.]+$/,'');
+    saveLocal(); LS.path = path; LS.rev = rev || ''; LS.dirty = '';
+    updateCount(); say('読み込みました');
+  }catch(e){ say(e.message,6000); }
+}
+
+/* ---------- メニュー ---------- */
+const sheet = $('#sheet'), panel = $('#panel');
+const close = () => sheet.classList.remove('on');
+sheet.addEventListener('click', e => { if(e.target===sheet) close(); });
+const esc = s => s.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function menu(){
+  const on = !!LS.dbxRefresh;
+  panel.innerHTML = `
+    <h2>Dropbox</h2>
+    <div class="row">
+      ${on ? '<button id="mSave">保存</button><button id="mAs">別名で保存</button><button id="mOpen">開く</button><button id="mOut">切断</button>'
+           : '<button id="mLogin">Dropboxに接続</button>'}
+    </div>
+    <p>${on ? '開いたファイルは同じ場所に上書き保存します。新規は「タイトル.txt」としてアプリフォルダ直下に保存します。' : '初回のみApp keyの設定が必要です。'}</p>
+    <h2>文字の大きさ</h2>
+    <div class="row"><button id="mSm">小さく</button><button id="mLg">大きく</button></div>
+    <h2>設定</h2>
+    <input id="mKey" placeholder="Dropbox App key" value="${esc(LS.dbxKey||'')}" autocomplete="off" autocapitalize="off">
+    <p>Dropbox App Consoleで、Redirect URIに次のURLを登録してください：<br>${esc(REDIR)}<br>権限は files.content.read / files.content.write / files.metadata.read を有効にします。</p>
+    <div class="row"><button id="mNew">新しいノートを始める</button><button id="mClose">閉じる</button></div>`;
+  sheet.classList.add('on');
+  const $$ = s => panel.querySelector(s);
+  $$('#mKey').onchange = e => { LS.dbxKey = e.target.value.trim(); };
+  $$('#mClose').onclick = close;
+  if($$('#mLogin')) $$('#mLogin').onclick = () => { LS.dbxKey = $$('#mKey').value.trim(); login(); };
+  if($$('#mSave')) $$('#mSave').onclick = () => { close(); dbxSave(false); };
+  if($$('#mAs')) $$('#mAs').onclick = () => { close(); dbxSave(true); };
+  if($$('#mOpen')) $$('#mOpen').onclick = () => { nav = []; openList(); };
+  if($$('#mOut')) $$('#mOut').onclick = () => { ['dbxAccess','dbxRefresh','dbxExp'].forEach(k=>LS.removeItem(k)); say('切断しました'); menu(); };
+  $$('#mSm').onclick = () => { LS.fs = Math.max(14, (+LS.fs||18)-1); applySize(); };
+  $$('#mLg').onclick = () => { LS.fs = Math.min(28, (+LS.fs||18)+1); applySize(); };
+  $$('#mNew').onclick = () => { if(confirm('今のノートを閉じて、空白から始めますか？（Dropboxに保存済みか確認してください）')){ ed.value=''; title.value=''; saveLocal(); LS.path=''; LS.rev=''; LS.dirty=''; updateCount(); close(); } };
+}
+let nav = [];
+async function openList(dir='', label='アプリフォルダ'){
+  panel.innerHTML = '<h2>読み込み中…</h2>';
+  try{
+    const items = await dbxList(dir);
+    panel.innerHTML = `<h2>${esc(label)}</h2>` +
+      (nav.length ? '<button class="file" id="mUp">← 一つ上へ</button>' : '') +
+      (items.length ? items.map((f,i)=>`<button class="file" data-i="${i}">${f['.tag']==='folder'?'▸ ':''}${esc(f.name)}</button>`).join('')
+                    : '<p>ここにはファイルがありません。</p>') +
+      '<div class="row"><button id="mBack">戻る</button></div>';
+    panel.querySelectorAll('.file[data-i]').forEach(b => b.onclick = () => {
+      const f = items[+b.dataset.i];
+      if(f['.tag']==='folder'){ nav.push({dir,label}); openList(f.path_lower, f.name); }
+      else { close(); dbxOpen(f.path_lower, f.name, f.rev); }
+    });
+    const up = panel.querySelector('#mUp');
+    if(up) up.onclick = () => { const p = nav.pop(); openList(p.dir, p.label); };
+    panel.querySelector('#mBack').onclick = () => { nav = []; menu(); };
+  }catch(e){
+    panel.innerHTML = `<h2>エラー</h2><p>${esc(e.message)}</p><div class="row"><button id="mBack">戻る</button></div>`;
+    panel.querySelector('#mBack').onclick = () => { nav = []; menu(); };
+  }
+}
+$('#bMenu').onclick = menu;
+
+/* ---------- キーボード表示時の画面調整（iPhone） ---------- */
+const vv = window.visualViewport;
+function fit(){
+  if(!vv) return;
+  const kb = window.innerHeight - vv.height > 120;
+  document.body.classList.toggle('kb', kb);
+  document.documentElement.style.setProperty('--vh', (vv.height - (kb ? 48 : 0)) + 'px');
+  document.body.style.top = vv.offsetTop + 'px';
+}
+if(vv){ vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit(); }
+ed.addEventListener('focus', () => setTimeout(fit, 300));
+
+handleRedirect();
+})();
+</script>
+</body>
+</html>
