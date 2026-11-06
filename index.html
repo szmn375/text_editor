@@ -154,6 +154,14 @@ async function dbxList(dir){
   return out.filter(e => e['.tag']==='folder' || (e['.tag']==='file' && /\.(txt|md|text)$/i.test(e.name)))
     .sort((a,b) => (a['.tag']===b['.tag'] ? 0 : a['.tag']==='folder' ? -1 : 1) || a.name.localeCompare(b.name,'ja',{numeric:true}));
 }
+function decodeText(buf){
+  const u = new Uint8Array(buf), fix = t => t.replace(/\r\n?/g,'\n');
+  if(u[0]===0xEF && u[1]===0xBB && u[2]===0xBF) return {text:fix(new TextDecoder('utf-8').decode(u.subarray(3)))};
+  if(u[0]===0xFF && u[1]===0xFE) return {text:fix(new TextDecoder('utf-16le').decode(u.subarray(2)))};
+  if(u[0]===0xFE && u[1]===0xFF) return {text:fix(new TextDecoder('utf-16be').decode(u.subarray(2)))};
+  try{ return {text:fix(new TextDecoder('utf-8',{fatal:true}).decode(u))}; }
+  catch(e){ return {text:fix(new TextDecoder('shift_jis').decode(u)), sjis:true}; }
+}
 async function dbxOpen(path, name, rev){
   if(LS.dirty && !confirm('保存していない変更があります。破棄して開きますか？')) return;
   try{
@@ -161,9 +169,10 @@ async function dbxOpen(path, name, rev){
     const r = await fetch('https://content.dropboxapi.com/2/files/download',{method:'POST',headers:{
       Authorization:'Bearer '+await access(),'Dropbox-API-Arg':arg({path})}});
     if(!r.ok) throw new Error('読み込めませんでした');
-    ed.value = await r.text(); title.value = name.replace(/\.[^.]+$/,'');
+    const dec = decodeText(await r.arrayBuffer());
+    ed.value = dec.text; title.value = name.replace(/\.[^.]+$/,'');
     saveLocal(); LS.path = path; LS.rev = rev || ''; LS.dirty = '';
-    updateCount(); say('読み込みました');
+    updateCount(); say(dec.sjis ? 'Shift_JISとして読み込みました。保存するとUTF-8になります' : '読み込みました', dec.sjis ? 7000 : 3000);
   }catch(e){ say(e.message,6000); }
 }
 
