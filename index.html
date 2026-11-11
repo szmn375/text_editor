@@ -10,15 +10,17 @@
 <style>
 :root{
   --bg:#fbfbf9; --ink:#23262b; --sub:#8a9099; --line:#d5e2ea; --bar:#f1f2ee; --edge:#e2e4de; --accent:#2f6f8f;
-  --fs:18px; --lh:36px;
+  --fs:18px; --lh:36px; --ff:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+  color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
-  :root{ --bg:#1b1d20; --ink:#e4e5e2; --sub:#80858d; --line:#2c3439; --bar:#222529; --edge:#2e3236; --accent:#7fb6d3; }
+  :root:not([data-theme="light"]){ --bg:#1b1d20; --ink:#e4e5e2; --sub:#80858d; --line:#2c3439; --bar:#222529; --edge:#2e3236; --accent:#7fb6d3; color-scheme:dark; }
 }
+:root[data-theme="dark"]{ --bg:#1b1d20; --ink:#e4e5e2; --sub:#80858d; --line:#2c3439; --bar:#222529; --edge:#2e3236; --accent:#7fb6d3; color-scheme:dark; }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--ink)}
 body{position:fixed;left:0;top:0;width:100%;display:flex;flex-direction:column;height:var(--vh,100dvh);overflow:hidden;
-  font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;
+  font-family:var(--ff);
   padding-top:env(safe-area-inset-top,0px)}
 header,footer{display:flex;align-items:center;gap:8px;background:var(--bar);padding:6px 12px;
   font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
@@ -50,6 +52,7 @@ button:focus-visible,#title:focus-visible{outline:2px solid var(--accent)}
 .panel h2{font-size:15px;margin:4px 0 10px;font-weight:600}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
 .row button{background:var(--bar);flex:1;min-width:30%}
+.row button[aria-pressed="true"]{background:var(--accent);color:var(--bg)}
 .panel input{width:100%;font-size:16px;padding:10px;border:1px solid var(--edge);border-radius:8px;background:var(--bar);color:var(--ink)}
 .panel p{font-size:12px;color:var(--sub);line-height:1.6;margin:6px 0}
 .file{display:block;width:100%;text-align:left;color:var(--ink);padding:12px 6px;border-bottom:1px solid var(--edge);border-radius:0}
@@ -57,10 +60,10 @@ button:focus-visible,#title:focus-visible{outline:2px solid var(--accent)}
 </head>
 <body>
 <header>
-  <input id="title" placeholder="タイトル" aria-label="タイトル" autocomplete="off">
+  <input id="title" name="note-title" type="text" placeholder="タイトル" aria-label="タイトル" enterkeyhint="done" autocapitalize="off" autocorrect="off" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
   <button id="bMenu" aria-label="メニュー">メニュー</button>
 </header>
-<div class="wrap"><textarea id="ed" placeholder="ここに書き始める" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea></div>
+<div class="wrap"><textarea id="ed" name="note-body" placeholder="ここに書き始める" spellcheck="false" autocapitalize="off" autocorrect="off" enterkeyhint="enter" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other"></textarea></div>
 <footer>
   <button id="count" aria-label="文字数の数え方を切り替え">0字</button>
   <span id="status"></span>
@@ -88,7 +91,19 @@ function saveLocal(){ LS.text = ed.value; LS.name = title.value; }
 ed.addEventListener('input', () => { LS.dirty = '1'; updateCount(); clearTimeout(timer); timer = setTimeout(saveLocal, 400); });
 title.addEventListener('input', () => { LS.dirty = '1'; saveLocal(); });
 ed.value = LS.text || ''; title.value = LS.name || '';
-function applySize(){ document.documentElement.style.setProperty('--fs', (LS.fs||18)+'px'); document.documentElement.style.setProperty('--lh', Math.round((LS.fs||18)*2)+'px'); }
+const FONTS = {
+  mincho:['明朝','"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif'],
+  gothic:['ゴシック','"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif'],
+  maru:['丸ゴシック','"Hiragino Maru Gothic ProN","BIZ UDPGothic","Yu Gothic",sans-serif']
+};
+const THEMES = {auto:'自動', light:'ライト', dark:'ダーク'};
+function applySize(){
+  const R = document.documentElement, fs = +LS.fs||18, lhr = +LS.lhr||2;
+  R.style.setProperty('--fs', fs+'px');
+  R.style.setProperty('--lh', Math.round(fs*lhr)+'px');
+  R.style.setProperty('--ff', (FONTS[LS.font]||FONTS.mincho)[1]);
+  if(LS.theme==='light' || LS.theme==='dark') R.dataset.theme = LS.theme; else delete R.dataset.theme;
+}
 applySize(); updateCount();
 
 function say(msg, ms=3000){ status.textContent = msg; if(ms) setTimeout(()=>{ if(status.textContent===msg) status.textContent=''; }, ms); }
@@ -193,8 +208,14 @@ function menu(){
     <p>${on ? '開いたファイルは同じ場所に上書き保存します。新規は「タイトル.txt」としてアプリフォルダ直下に保存します。' : '初回のみApp keyの設定が必要です。'}</p>
     <h2>文字の大きさ</h2>
     <div class="row"><button id="mSm">小さく</button><button id="mLg">大きく</button></div>
+    <h2>行間</h2>
+    <div class="row"><button id="mLn">狭く</button><button id="mLw">広く</button></div>
+    <h2>フォント</h2>
+    <div class="row">${Object.entries(FONTS).map(([k,v])=>`<button data-font="${k}" aria-pressed="${(LS.font||'mincho')===k}" style="font-family:${v[1].replace(/"/g,"'")}">${v[0]}</button>`).join('')}</div>
+    <h2>画面の色</h2>
+    <div class="row">${Object.entries(THEMES).map(([k,v])=>`<button data-theme-btn="${k}" aria-pressed="${(LS.theme||'auto')===k}">${v}</button>`).join('')}</div>
     <h2>設定</h2>
-    <input id="mKey" placeholder="Dropbox App key" value="${esc(LS.dbxKey||'')}" autocomplete="off" autocapitalize="off">
+    <input id="mKey" placeholder="Dropbox App key" name="app-key" value="${esc(LS.dbxKey||'')}" autocapitalize="off" autocorrect="off" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
     <p>Dropbox App Consoleで、Redirect URIに次のURLを登録してください：<br>${esc(REDIR)}<br>権限は files.content.read / files.content.write / files.metadata.read を有効にします。</p>
     <div class="row"><button id="mNew">新しいノートを始める</button><button id="mClose">閉じる</button></div>`;
   sheet.classList.add('on');
@@ -208,6 +229,15 @@ function menu(){
   if($$('#mOut')) $$('#mOut').onclick = () => { ['dbxAccess','dbxRefresh','dbxExp'].forEach(k=>LS.removeItem(k)); say('切断しました'); menu(); };
   $$('#mSm').onclick = () => { LS.fs = Math.max(14, (+LS.fs||18)-1); applySize(); };
   $$('#mLg').onclick = () => { LS.fs = Math.min(28, (+LS.fs||18)+1); applySize(); };
+  const lh = d => { LS.lhr = Math.min(2.4, Math.max(1.3, Math.round(((+LS.lhr||2)+d)*10)/10)); applySize(); say('行間 '+(+LS.lhr).toFixed(1)+'倍', 1500); };
+  $$('#mLn').onclick = () => lh(-0.1);
+  $$('#mLw').onclick = () => lh(0.1);
+  const pick = (sel, attr, key) => panel.querySelectorAll(sel).forEach(b => b.onclick = () => {
+    LS[key] = b.getAttribute(attr); applySize();
+    panel.querySelectorAll(sel).forEach(x => x.setAttribute('aria-pressed', x===b));
+  });
+  pick('[data-font]','data-font','font');
+  pick('[data-theme-btn]','data-theme-btn','theme');
   $$('#mNew').onclick = () => { if(confirm('今のノートを閉じて、空白から始めますか？（Dropboxに保存済みか確認してください）')){ ed.value=''; title.value=''; saveLocal(); LS.path=''; LS.rev=''; LS.dirty=''; updateCount(); close(); } };
 }
 let nav = [];
